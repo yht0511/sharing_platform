@@ -1,0 +1,6 @@
+.DS_Store
+Thumbs.db
+
+artefact/
+target/
+.editorconfig
