@@ -4,8 +4,8 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class Log {
     private static PrintWriter writer;
     private static final AtomicBoolean INITIALIZED = new AtomicBoolean(false);
+    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
     
     static {
         try {
@@ -45,13 +46,12 @@ public class Log {
             return;
         }
         // Create a new SimpleDateFormat instance for each call to ensure thread safety.
-        SimpleDateFormat threadSafeDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
-        String timestamp = threadSafeDateFormat.format(new Date());
+        String timestamp = DATE_FORMATTER.format(LocalDateTime.now());
         String wholeMessage = "[" + timestamp + "] " + message;
         try {
             writer.println(wholeMessage);
             writer.flush(); // Flush immediately to ensure logs are written
-            System.out.println(wholeMessage);
+            // System.out.println(wholeMessage);
         } catch (Exception e) {
             System.err.println("Error writing to log file: " + e.getMessage());
             e.printStackTrace();

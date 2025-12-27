@@ -23,7 +23,7 @@ public class AuthFilter extends Filter {
      * Constructs an AuthFilter and initializes the JWT verifier.
      */
     public AuthFilter() {
-        this.verifier = JWT.require(LoginHandler.JWT_ALGORITHM)
+        this.verifier = JWT.require(LoginHandler.getAlgorithm())
                 .withIssuer("sharing_platform")
                 .build();
     }

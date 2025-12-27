@@ -26,10 +26,13 @@ import java.util.Map;
  */
 public class LoginHandler implements HttpHandler {
     private final String staticDir;
-    /** A secret key for signing JWTs. In a production environment, this should be managed securely (e.g., environment variables, secrets manager). */
-    public static final String JWT_SECRET = "your-very-secret-key-that-is-long-and-secure";
-    /** The algorithm used for signing and verifying JWTs. */
-    public static final Algorithm JWT_ALGORITHM = Algorithm.HMAC256(JWT_SECRET);
+
+    /**
+     * Gets the algorithm used for signing and verifying JWTs using the secret from Config.
+     */
+    public static Algorithm getAlgorithm() {
+        return Algorithm.HMAC256(Config.getJwtSecret());
+    }
 
     /**
      * Constructs a LoginHandler.
@@ -99,7 +102,7 @@ public class LoginHandler implements HttpHandler {
                     .withSubject(username)
                     .withIssuedAt(Date.from(now))
                     .withExpiresAt(Date.from(now.plus(30, ChronoUnit.MINUTES)))
-                    .sign(JWT_ALGORITHM);
+                    .sign(getAlgorithm());
 
             exchange.getResponseHeaders().add("Set-Cookie", "token=" + token + "; HttpOnly; Path=/; Max-Age=1800");
             exchange.sendResponseHeaders(200, -1); // Success, no body

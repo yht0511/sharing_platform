@@ -4,10 +4,10 @@
 *   **无状态认证**：使用 JWT (JSON Web Token) 进行无状态会话管理，用户登录后获取一个有时效性（30分钟）的 Token，后续请求均通过此 Token 验证身份，有效杜绝未授权访问，且便于未来接入统一认证平台。
 *   **高级搜索语法**：支持类似搜索引擎的复杂查询语法，用户可以精确控制搜索条件。以下按优先级从高到低的顺序介绍：
     *   `"text"`：引号表示精确匹配。
+    *   括号 `()` 用于控制逻辑优先级。
     *   `field:value`：冒号表示对指定字段进行检索（如 `filetype:pdf`）。
     *   `value1..value2`：两个点表示数值或日期的范围查询（包含起始值，不包含结束值），如 `filesize:1024..2048`。
     *   `AND`, `OR`, `NOT`：支持逻辑组合，其优先级为NOT>AND>OR。
-    *   括号 `()` 用于控制逻辑优先级。
     *   一个更复杂的例子：`filetype:"pdf" OR filetype:docx world AND (filesize:0..2147483648) NOT hello OR time:000101..1231`
         *   这句查询的含义是：查找满足以下任一条件的文档：
             1.  文件类型**精确为** "pdf"；
@@ -102,6 +102,11 @@ UC_DOWNLOAD_BULK .> UC_LOGIN : <<includes>>
 @startuml
 interface HttpHandler
 
+class Config {
+  {static} +load(String)
+  {static} +startHotReload(String)
+}
+
 class App {
   +main(String[] args)
 }
@@ -160,6 +165,9 @@ App ..> HttpServer : creates
 HttpServer ..> HttpHandler : uses
 HttpServer ..> AuthFilter : uses
 
+App ..> Config : uses
+LoginHandler ..> Config : uses
+QueryHandler ..> Config : uses
 SearchAPIHandler ..> QueryHandler : uses
 SearchAPIHandler ..> DBHandler : uses
 DownloadHandler ..> DBHandler : uses
@@ -176,6 +184,7 @@ SearchAPIHandler ..> Log : uses
     *   **`App`**: 程序主入口，负责创建和配置 `HttpServer`，并将不同的 URL 上下文（Context）与对应的 `HttpHandler` 绑定。
     *   **`HttpHandler` 实现**: `StaticFileHandler`, `LoginHandler`, `SearchAPIHandler`, `DownloadHandler` 都实现了 `com.sun.net.httpserver.HttpHandler` 接口，分别负责处理静态文件、登录、搜索和下载的 HTTP 请求。
     *   **`AuthFilter`**: 继承自 `com.sun.net.httpserver.Filter`，作为一个认证过滤器，在请求到达 `SearchAPIHandler` 和 `DownloadHandler` 之前进行 JWT 验证。
+    *   **`Config`**: 负责加载和管理应用程序配置（如 `config.json`），支持热重载。
     *   **工具类 (Utility Classes)**: `QueryHandler`, `DBHandler`, `Log` 是静态工具类，分别提供查询转换、数据库操作和日志记录的功能。它们被其他 Handler 按需调用。
     *   **关系**:
         *   `App` **组合**了所有 `HttpHandler` 和 `Filter`。
@@ -205,6 +214,10 @@ SearchAPIHandler ..> Log : uses
     *   通过 `HttpOnly` Cookie 存储 JWT，避免了 Token 被客户端脚本窃取的风险（XSS）。
     *   `DownloadHandler` 中实现的“临时链接”机制非常巧妙：它首先通过 POST 请求创建一个有时效性（5分钟）且存储在内存中的唯一ID，然后通过 302 重定向让浏览器 GET 这个ID。一旦ID被使用（或过期），它就会被立即从内存中移除，确保了每个下载链接只能被使用一次，有效实现了防盗链。
 
+4.  **配置热重载与性能优化**：
+    *   引入 `Config` 类管理外部配置文件 `config.json`，并利用后台线程监控文件变化，实现了配置的**热重载**（Hot Reload），无需重启服务即可更新 JWT 密钥或查询字段配置。
+    *   优化了 `DBHandler`，将数据库连接改为静态单例复用模式，避免了频繁创建/销毁连接带来的性能开销。
+
 #### 遇到的技术难点及对应的解决方案
 
 1.  **问题描述：如何安全地将用户输入转换为 SQL 查询？**
@@ -226,7 +239,7 @@ SearchAPIHandler ..> Log : uses
 3.  **问题描述：多线程环境下日志记录和临时链接管理的线程安全问题。**
     *   **难点**：`SimpleDateFormat` 是非线程安全的，在多用户并发访问时，静态的 `Log` 类可能会产生日期格式化错误。同时，`DownloadHandler` 中的临时链接 `Map` 也需要被多个线程安全地读写和清理。
     *   **解决方案**：
-        *   **日志**：在 `Log.println` 方法内部，每次调用都创建一个新的 `SimpleDateFormat` 实例，而不是使用一个静态共享的实例，从而避免了线程安全问题。
+        *   **日志**：弃用了非线程安全的 `SimpleDateFormat`，改用 Java 8 引入的 `DateTimeFormatter`，并将其设为静态常量。这不仅解决了线程安全问题，还减少了每次日志记录时创建对象的开销。
         *   **临时链接管理**：使用 `java.util.concurrent.ConcurrentHashMap` 来存储临时下载链接。这是一个线程安全的 `Map` 实现，保证了在高并发下 `put` 和 `remove` 操作的原子性和可见性。同时，使用 `ScheduledExecutorService` 在一个独立的后台守护线程中定期清理过期的链接，避免了在处理用户请求的线程中执行耗时的清理操作。
 
 ## 6、简要开发过程
@@ -255,6 +268,14 @@ SearchAPIHandler ..> Log : uses
         *   用户登录成功后，服务器会颁发一个有效期为30分钟的 `HttpOnly` Cookie，所有受保护的 API 请求都必须通过 `AuthFilter` 的验证。
     *   **问题修复**：解决了下载包含中文等非 ASCII 字符的文件名时出现的乱码问题，通过在 `Content-Disposition` 响应头中正确使用 RFC 5987 标准进行编码。
 
+#### 第四阶段：配置管理与性能优化 (12月8日 - )
+*   **配置管理**：
+    *   新增 `Config` 类和 `config.json` 配置文件，将 JWT 密钥、日期/数值属性名列表提取到外部配置中。
+    *   实现了配置文件的热重载功能，后台线程定期检查文件修改时间，自动更新内存中的配置。
+*   **性能优化**：
+    *   重构 `DBHandler`，实现数据库连接复用，减少 I/O 开销。
+    *   优化 `Log` 类，使用 `DateTimeFormatter` 替代 `SimpleDateFormat`，降低内存占用。
+
 ## 7、个人小结及建议
 
 小结：
@@ -272,6 +293,7 @@ SearchAPIHandler ..> Log : uses
 #### 1. 环境要求
 *   **Java**: JDK 21 或更高版本。JDK 11和JDK 17运行时仅能查询，下载功能不能实现。 
 *   **Maven**: 3.6.3 或更高版本。
+*   **配置文件**: 运行目录下需包含 `config.json`。
 
 #### 2. 编译与运行
 1.  **编译**: 在项目根目录下（`pom.xml`所在目录），执行以下命令进行编译和打包：
@@ -284,7 +306,11 @@ SearchAPIHandler ..> Log : uses
     ```bash
     java -jar target/sharing_platform-0.1.jar
     ```
-    服务启动后，会监听 `8080` 端口。所有运行日志会同时输出到控制台和 `log/runtime.log` 文件中。
+    服务启动后，会监听 `8888` 端口。所有运行日志会同时输出到控制台和 `log/runtime.log` 文件中。
+    如果需要指定端口：
+    ```bash
+    java -jar target/sharing_platform-0.1.jar -p 8888
+    ```
 
 #### 3. 文件与数据库管理 (通过Python脚本)
 本项目Java部分暂不包含文件入库逻辑，需要通过提供的Python脚本进行管理。
@@ -301,4 +327,4 @@ SearchAPIHandler ..> Log : uses
 *   **数据关联**: 建立新的数据表（如课程信息表），并将文件资料与课程进行关联，实现按课程筛选资料的功能。
 *   **统一认证集成**: 将现有JWT认证系统与BIT101对接，实现单点登录。
 
-（本文档由作者和Gemini 2.5 Pro共同撰写）
+（本文档由作者和Gemini Code Assist共同撰写）

@@ -17,6 +17,26 @@ import java.util.Map;
  */
 public class DBHandler {
     private static final String DB_URL = "jdbc:sqlite:./db/platform.db";
+    private static Connection conn;
+
+    private static synchronized Connection getConnection() throws SQLException {
+        if (conn == null || conn.isClosed()) {
+            conn = DriverManager.getConnection(DB_URL);
+        }
+        return conn;
+    }
+
+    static {
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                if (conn != null && !conn.isClosed()) {
+                    conn.close();
+                }
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }));
+    }
 
     /**
      * Executes a given SQL query string and returns the results.
@@ -33,8 +53,7 @@ public class DBHandler {
         List<Map<String, Object>> results = new ArrayList<>();
 
         // Using try-with-resources to ensure database resources are closed automatically.
-        try (Connection conn = DriverManager.getConnection(DB_URL);
-             Statement stmt = conn.createStatement();
+        try (Statement stmt = getConnection().createStatement();
              ResultSet rs = stmt.executeQuery(queryString)) {
 
             ResultSetMetaData md = rs.getMetaData();

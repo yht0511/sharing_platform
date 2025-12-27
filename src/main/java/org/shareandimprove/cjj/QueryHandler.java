@@ -195,12 +195,6 @@ class StringList extends ArrayList<String>{
  * This class is responsible for parsing a user-provided search string and translating it into a valid SQL condition.
  */
 public class QueryHandler{
-    private static final Set<String> DATE_ATTR_NAMES = new HashSet<>(Arrays.asList(
-        "time"
-    ));
-    private static final Set<String> NUM_ATTR_NAMES = new HashSet<>(Arrays.asList(
-        "filesize"
-    ));
 
     /**
      * Parses a statement in the custom query language into a SQL conditional expression.
@@ -323,10 +317,10 @@ public class QueryHandler{
                 if(!Validator.isValidAttr(attrName)){
                     throw new IllegalArgumentException("`"+attrName+"` is not a valid attribute name");
                 }
-                if(DATE_ATTR_NAMES.contains(attrName.toLowerCase())){ // the attribute should be a date
+                if(Config.getDateAttrNames().contains(attrName.toLowerCase())){ // the attribute should be a date
                     stringList.set(i, parseDate(currToken));
                     stringList.set(i-1, "=");
-                }else if(NUM_ATTR_NAMES.contains(attrName.toLowerCase())){ // the attribute should be a number
+                }else if(Config.getNumAttrNames().contains(attrName.toLowerCase())){ // the attribute should be a number
                     if(!Validator.isFloat(currToken)){
                         throw new IllegalArgumentException("`"+currToken+"` is not a number");
                     }
@@ -354,10 +348,10 @@ public class QueryHandler{
                     if(!Validator.isValidAttr(attrName)){
                         throw new IllegalArgumentException("`"+attrName+"` is not a valid attribute name");
                     }
-                    if(DATE_ATTR_NAMES.contains(attrName.toLowerCase())){
+                    if(Config.getDateAttrNames().contains(attrName.toLowerCase())){
                         lowerBound = parseDate(lowerBound);
                         currToken = parseDate(currToken);
-                    }else if(!NUM_ATTR_NAMES.contains(attrName.toLowerCase())){
+                    }else if(!Config.getNumAttrNames().contains(attrName.toLowerCase())){
                         throw new IllegalArgumentException("`"+attrName+"` is nut a numeric attribute name");
                     }
                     i -= 4;
@@ -500,7 +494,7 @@ public class QueryHandler{
      */
     public static String query2SQL(String query) throws IllegalArgumentException{
         Log.println(query);
-        return "SELECT * FROM FILE WHERE " + parseStatement(query.trim()) + " ORDER BY filename, filetype DESC;";
+        return "SELECT " + Config.getSelectColumns() + " FROM FILE WHERE " + parseStatement(query.trim()) + " ORDER BY filename, filetype DESC;";
     }
 
     /**
